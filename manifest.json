@@ -22,7 +22,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["db.js", "content.js"]
+      "js": ["db.js", "ui.js", "flashcard-manager.js", "content.js"]
     }
   ],
   "action": {
