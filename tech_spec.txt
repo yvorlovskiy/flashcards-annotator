@@ -1,0 +1,46 @@
+Technical Requirements
+	1.	Extension Structure
+	•	Manifest: A manifest.json defining permissions (e.g., reading and modifying web content, local storage).
+	•	Content Script: Injected into pages/PDFs to capture highlighted text, create annotations, and persist flashcards.
+	•	Background/Service Worker: Manages storage (Local Storage/IndexedDB) and export functionality.
+	2.	UI & User Interactions
+	•	Highlight & Annotate:
+	•	On text selection, a small popup offers “Create Flashcard.”
+	•	A minimal overlay near the highlighted text shows the annotation if hovered/clicked.
+	•	Flashcard Editor:
+	•	A simple form to set question/answer.
+	•	Option to include link back to original source (URL plus an identifier for the selection).
+	•	Export Manager:
+	•	A basic options page or toolbar button to list all flashcards.
+	•	Export to JSON or Markdown.
+	•	Each flashcard entry includes text excerpt, question, answer, and source link.
+	3.	Data Storage & Persistence
+	•	Local Storage or IndexedDB:
+	•	Store annotations keyed by unique page URL + position range.
+	•	Identifier for Highlights:
+	•	Each highlight can store a start/end offset or a unique CSS/xPath selector.
+	•	Synchronization (Optional):
+	•	For cross-device usage, integrate with a cloud service (e.g., Firebase, Dropbox, or extension sync storage).
+	4.	Implementation Steps
+	1.	Initialize Extension
+	•	Create manifest.json with required permissions (activeTab, storage).
+	•	Define content script injection for text selection.
+	2.	Capture & Annotate
+	•	In the content script, detect text selection and create a highlight.
+	•	Store (URL, selectedText, offset/selector, question, answer) in local DB.
+	3.	Rendering Highlights
+	•	On page load, the content script queries local DB for highlights matching the current URL.
+	•	Reconstruct highlights with a CSS overlay or styled <span>.
+	4.	UI for Reviewing Flashcards
+	•	A simple HTML page or extension popup that lists all flashcards.
+	•	Buttons to export to desired format.
+	5.	Export Functionality
+	•	Convert saved data (JSON structure) into a portable file, preserving links (URL + offset).
+	•	Permit re-import in a third-party flashcard app or referencing a direct link to the highlight.
+	5.	Proposed Stack & Simplicity
+	•	HTML/CSS/JS only (no heavy frameworks) for minimal footprint.
+	•	IndexedDB for flexible, structured storage.
+	•	Optional: Light bundler (e.g., Vite) to manage the build, but plain JavaScript can suffice if kept simple.
+
+Outcome
+A simple browser extension that highlights text, creates minimal flashcards with a reference link, and exports them in a straightforward format (JSON/Markdown). Highlights are persistent via local storage or IndexedDB. This approach keeps the overall complexity low while meeting your primary goals of creating, annotating, and exporting flashcards.

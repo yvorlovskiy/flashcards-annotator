@@ -1,3 +1,16 @@
+console.log('CONTENT SCRIPT LOADED - ' + new Date().toISOString());
+
+const db = new FlashcardDB();
+
+// We can't use top-level await in content scripts, so wrap the init in an async function
+(async function initializeDB() {
+    try {
+        await db.init();
+    } catch (error) {
+        console.error('Failed to initialize database:', error);
+    }
+})();
+
 let lastSelection = null;
 
 // Store the last selection
@@ -57,69 +70,130 @@ document.addEventListener('keydown', function(e) {
                 return;
             }
 
-            const flashcard = {
-                question: question,
-                answer: answer,
-                highlightedText: lastSelection ? lastSelection.text : '',
-                url: window.location.href,
-                timestamp: new Date().toISOString()
-            };
-
-            // If there's a selection, highlight it
-            if (lastSelection) {
-                const highlightSpan = document.createElement('span');
-                highlightSpan.style.backgroundColor = 'yellow';
-                lastSelection.range.surroundContents(highlightSpan);
-            }
-
-            chrome.storage.local.get(['flashcards'], function(result) {
-                const flashcards = result.flashcards || [];
-                flashcards.push(flashcard);
-                chrome.storage.local.set({ flashcards: flashcards }, function() {
+            db.addPage(window.location.href, document.body.innerHTML)
+                .then(() => {
+                    if (lastSelection && lastSelection.range && lastSelection.text) {
+                        return db.addHighlight(window.location.href, {
+                            text: lastSelection.text,
+                            range: lastSelection.range
+                        });
+                    }
+                    return null;
+                })
+                .then(highlightId => {
+                    return db.addFlashcard(highlightId, window.location.href, {
+                        question,
+                        answer
+                    });
+                })
+                .then(() => {
                     popup.remove();
+                })
+                .catch(error => {
+                    console.error('Error saving flashcard:', error);
+                    alert('Error saving flashcard. Please try again.');
                 });
-            });
         };
     }
 });
 
 // Restore highlights when page loads
-window.addEventListener('load', function() {
-    chrome.storage.local.get(['flashcards'], function(result) {
-        const flashcards = result.flashcards || [];
-        const currentUrl = window.location.href;
+window.addEventListener('load', async function() {
+    try {
+        // Wait for DB initialization
+        if (!db.db) {
+            await new Promise(resolve => {
+                const checkDb = setInterval(() => {
+                    if (db.db) {
+                        clearInterval(checkDb);
+                        resolve();
+                    }
+                }, 100);
+            });
+        }
+
+        // Get highlights for current page from IndexedDB
+        const highlights = await db.getHighlightsForPage(window.location.href);
         
-        const pageFlashcards = flashcards.filter(card => card.url === currentUrl);
-        
-        pageFlashcards.forEach(flashcard => {
-            // Simple text search and highlight
-            const text = flashcard.highlightedText;
-            const textNodes = [];
-            const walker = document.createTreeWalker(
-                document.body,
-                NodeFilter.SHOW_TEXT,
-                null,
-                false
+        // Simple highlight restoration
+        highlights.forEach(highlight => {
+            if (!highlight.text) return;
+            
+            // Find and highlight first instance of the text
+            const findAndHighlight = (node) => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    const index = node.textContent.indexOf(highlight.text);
+                    if (index >= 0) {
+                        const range = document.createRange();
+                        range.setStart(node, index);
+                        range.setEnd(node, index + highlight.text.length);
+                        
+                        const span = document.createElement('span');
+                        span.style.backgroundColor = 'yellow';
+                        span.dataset.highlightId = highlight.id;
+                        
+                        try {
+                            range.surroundContents(span);
+                            return true; // Text was found and highlighted
+                        } catch (e) {
+                            console.warn('Could not highlight text:', e);
+                        }
+                    }
+                } else {
+                    // Recursively search child nodes
+                    for (const child of node.childNodes) {
+                        if (findAndHighlight(child)) {
+                            return true; // Stop after first highlight
+                        }
+                    }
+                }
+                return false;
+            };
+
+            findAndHighlight(document.body);
+        });
+
+        // Handle legacy highlights
+        chrome.storage.local.get(['flashcards'], function(result) {
+            const flashcards = result.flashcards || [];
+            const pageFlashcards = flashcards.filter(card => 
+                card.url === window.location.href && card.highlightedText
             );
+            
+            pageFlashcards.forEach(flashcard => {
+                const findAndHighlight = (node) => {
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        const index = node.textContent.indexOf(flashcard.highlightedText);
+                        if (index >= 0) {
+                            const range = document.createRange();
+                            range.setStart(node, index);
+                            range.setEnd(node, index + flashcard.highlightedText.length);
+                            
+                            const span = document.createElement('span');
+                            span.style.backgroundColor = 'yellow';
+                            span.dataset.legacyHighlight = 'true';
+                            
+                            try {
+                                range.surroundContents(span);
+                                return true;
+                            } catch (e) {
+                                console.warn('Could not highlight legacy text:', e);
+                            }
+                        }
+                    } else {
+                        for (const child of node.childNodes) {
+                            if (findAndHighlight(child)) {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                };
 
-            let node;
-            while (node = walker.nextNode()) {
-                if (node.textContent.includes(text)) {
-                    textNodes.push(node);
-                }
-            }
-
-            textNodes.forEach(textNode => {
-                const index = textNode.textContent.indexOf(text);
-                if (index >= 0) {
-                    const range = document.createRange();
-                    range.setStart(textNode, index);
-                    range.setEnd(textNode, index + text.length);
-                    const span = document.createElement('span');
-                    span.style.backgroundColor = 'yellow';
-                    range.surroundContents(span);
-                }
+                findAndHighlight(document.body);
             });
         });
-    });
+    } catch (error) {
+        console.error('Error restoring highlights:', error);
+    }
 }); 
