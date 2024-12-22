@@ -159,4 +159,33 @@ window.FlashcardDB = class FlashcardDB {
             }
         });
     }
+
+    async deleteHighlight(highlightId) {
+        const transaction = this.db.transaction(['highlights', 'flashcards'], 'readwrite');
+        const highlightStore = transaction.objectStore('highlights');
+        const flashcardStore = transaction.objectStore('flashcards');
+
+        return new Promise((resolve, reject) => {
+            try {
+                // Delete the highlight
+                const highlightRequest = highlightStore.delete(highlightId);
+                
+                // Delete associated flashcards
+                const flashcardIndex = flashcardStore.index('highlightId');
+                const flashcardRequest = flashcardIndex.getAll(highlightId);
+                
+                flashcardRequest.onsuccess = () => {
+                    const flashcards = flashcardRequest.result;
+                    flashcards.forEach(flashcard => {
+                        flashcardStore.delete(flashcard.id);
+                    });
+                    resolve();
+                };
+                
+                transaction.onerror = () => reject(transaction.error);
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
 } 

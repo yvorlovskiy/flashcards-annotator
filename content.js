@@ -81,6 +81,14 @@ document.addEventListener('keydown', function(e) {
                     return null;
                 })
                 .then(highlightId => {
+                    // Create visual highlight immediately after saving
+                    if (lastSelection && lastSelection.range) {
+                        const highlightSpan = document.createElement('span');
+                        highlightSpan.style.backgroundColor = 'yellow';
+                        highlightSpan.dataset.highlightId = highlightId;  // Store the ID for later reference
+                        lastSelection.range.surroundContents(highlightSpan);
+                    }
+
                     return db.addFlashcard(highlightId, window.location.href, {
                         question,
                         answer
@@ -88,6 +96,7 @@ document.addEventListener('keydown', function(e) {
                 })
                 .then(() => {
                     popup.remove();
+                    lastSelection = null;  // Clear the selection after successful save
                 })
                 .catch(error => {
                     console.error('Error saving flashcard:', error);
@@ -195,5 +204,129 @@ window.addEventListener('load', async function() {
         });
     } catch (error) {
         console.error('Error restoring highlights:', error);
+    }
+});
+
+// Handle clicks on highlights
+document.addEventListener('click', async function(e) {
+    const highlightSpan = e.target.closest('span[data-highlight-id], span[data-legacy-highlight]');
+    if (!highlightSpan) return;
+
+    // Remove existing flashcard popup if it exists
+    const existingPopup = document.getElementById('flashcard-view-popup');
+    if (existingPopup) {
+        existingPopup.remove();
+        // If we're clicking the same highlight that created this popup, just exit
+        if (existingPopup.dataset.highlightId === highlightSpan.dataset.highlightId) {
+            return;
+        }
+    }
+
+    try {
+        let flashcard;
+        if (highlightSpan.dataset.highlightId) {
+            // Get flashcard from IndexedDB
+            const highlightId = parseInt(highlightSpan.dataset.highlightId);
+            const flashcards = await db.getFlashcardsForHighlight(highlightId);
+            flashcard = flashcards[0];
+        } else {
+            // Get legacy flashcard from chrome.storage
+            const highlightText = highlightSpan.textContent;
+            const result = await new Promise(resolve => 
+                chrome.storage.local.get(['flashcards'], resolve)
+            );
+            flashcard = (result.flashcards || []).find(card => 
+                card.highlightedText === highlightText &&
+                card.url === window.location.href
+            );
+        }
+
+        if (!flashcard) return;
+
+        // Create and position popup
+        const popup = document.createElement('div');
+        popup.id = 'flashcard-view-popup';
+        popup.dataset.highlightId = highlightSpan.dataset.highlightId;
+        popup.innerHTML = `
+            <div style="
+                padding: 15px;
+                background: white;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                max-width: 300px;
+                position: relative;
+            ">
+                <div style="
+                    position: absolute;
+                    top: 5px;
+                    right: 5px;
+                    cursor: pointer;
+                    padding: 5px;
+                ">
+                    <span id="delete-highlight" style="
+                        color: #666;
+                        font-size: 16px;
+                    ">🗑️</span>
+                </div>
+                <div style="font-weight: bold; margin-bottom: 10px;">Q: ${flashcard.question}</div>
+                <div>A: ${flashcard.answer}</div>
+            </div>
+        `;
+
+        // Position popup near the highlight
+        const rect = highlightSpan.getBoundingClientRect();
+        popup.style.position = 'fixed';
+        popup.style.left = `${rect.left}px`;
+        popup.style.top = `${rect.bottom + 5}px`;
+        popup.style.zIndex = '10000';
+
+        document.body.appendChild(popup);
+
+        // Add delete handler
+        const deleteBtn = popup.querySelector('#delete-highlight');
+        deleteBtn.onclick = async (e) => {
+            e.stopPropagation(); // Prevent event from bubbling
+            
+            if (confirm('Are you sure you want to delete this flashcard?')) {
+                try {
+                    if (highlightSpan.dataset.highlightId) {
+                        // Delete from IndexedDB
+                        const highlightId = parseInt(highlightSpan.dataset.highlightId);
+                        await db.deleteHighlight(highlightId);
+                    } else {
+                        // Delete from legacy storage
+                        const result = await new Promise(resolve => 
+                            chrome.storage.local.get(['flashcards'], resolve)
+                        );
+                        const flashcards = result.flashcards || [];
+                        const updatedFlashcards = flashcards.filter(card => 
+                            !(card.highlightedText === highlightSpan.textContent &&
+                            card.url === window.location.href)
+                        );
+                        await new Promise(resolve => 
+                            chrome.storage.local.set({ flashcards: updatedFlashcards }, resolve)
+                        );
+                    }
+                    
+                    // Remove the highlight from the page
+                    highlightSpan.outerHTML = highlightSpan.textContent;
+                    popup.remove();
+                } catch (error) {
+                    console.error('Error deleting flashcard:', error);
+                    alert('Error deleting flashcard. Please try again.');
+                }
+            }
+        };
+
+        // Close popup when clicking outside
+        document.addEventListener('click', function closePopup(e) {
+            if (!popup.contains(e.target) && e.target !== highlightSpan) {
+                popup.remove();
+                document.removeEventListener('click', closePopup);
+            }
+        });
+    } catch (error) {
+        console.error('Error showing flashcard:', error);
     }
 }); 
