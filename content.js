@@ -1,12 +1,27 @@
+let lastSelection = null;
+
+// Store the last selection
 document.addEventListener('mouseup', function(e) {
     const selection = window.getSelection();
     const selectedText = selection.toString().trim();
-    
     if (selectedText) {
+        lastSelection = {
+            text: selectedText,
+            range: selection.getRangeAt(0)
+        };
+    }
+});
+
+// Show popup only on Ctrl+O
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.key === 'o') {
+        e.preventDefault();
+        
         // Remove existing popup if present
         const existingPopup = document.getElementById('flashcard-popup');
         if (existingPopup) {
             existingPopup.remove();
+            return;
         }
 
         // Create popup
@@ -20,11 +35,11 @@ document.addEventListener('mouseup', function(e) {
             </div>
         `;
 
-        // Position popup near selection
-        const rect = selection.getRangeAt(0).getBoundingClientRect();
+        // Position popup
         popup.style.position = 'fixed';
-        popup.style.left = `${rect.left}px`;
-        popup.style.top = `${rect.bottom + 10}px`;
+        popup.style.left = '50%';
+        popup.style.top = '50%';
+        popup.style.transform = 'translate(-50%, -50%)';
         popup.style.backgroundColor = 'white';
         popup.style.border = '1px solid #ccc';
         popup.style.borderRadius = '4px';
@@ -42,18 +57,20 @@ document.addEventListener('mouseup', function(e) {
                 return;
             }
 
-            const range = selection.getRangeAt(0);
-            const highlightSpan = document.createElement('span');
-            highlightSpan.style.backgroundColor = 'yellow';
-            range.surroundContents(highlightSpan);
-            
             const flashcard = {
                 question: question,
                 answer: answer,
-                highlightedText: selectedText,
+                highlightedText: lastSelection ? lastSelection.text : '',
                 url: window.location.href,
                 timestamp: new Date().toISOString()
             };
+
+            // If there's a selection, highlight it
+            if (lastSelection) {
+                const highlightSpan = document.createElement('span');
+                highlightSpan.style.backgroundColor = 'yellow';
+                lastSelection.range.surroundContents(highlightSpan);
+            }
 
             chrome.storage.local.get(['flashcards'], function(result) {
                 const flashcards = result.flashcards || [];
