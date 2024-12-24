@@ -3,48 +3,44 @@ class FlashcardManager {
     constructor(db) {
         this.db = db;
         this.lastSelection = null;
+        this.documentHandler = DocumentHandlerFactory.create();
     }
 
     async saveFlashcard(question, answer) {
-        await this.db.addPage(window.location.href, document.body.innerHTML);
+        await this.db.addPage(
+            this.documentHandler.getDocumentId(), 
+            document.body.innerHTML
+        );
+        
         let highlightId = null;
 
         if (this.lastSelection?.range && this.lastSelection?.text) {
             try {
-                highlightId = await this.db.addHighlight(window.location.href, {
+                const highlightData = {
                     text: this.lastSelection.text,
-                    range: this.lastSelection.range
-                });
+                    range: this.lastSelection.range,
+                    documentType: this.documentHandler.type,
+                    ...this.lastSelection // Include any additional data (e.g., PDF coordinates)
+                };
 
-                // Create highlight span
-                const highlightSpan = document.createElement('span');
-                highlightSpan.style.backgroundColor = 'yellow';
-                highlightSpan.dataset.highlightId = highlightId;
-                
-                // Handle text nodes properly
-                try {
-                    // First, try simple highlight
-                    this.lastSelection.range.surroundContents(highlightSpan);
-                } catch (e) {
-                    // If that fails, use a more robust approach
-                    const range = this.lastSelection.range;
-                    const fragment = range.extractContents();
-                    const textContent = fragment.textContent;
-                    
-                    // Create a new text node with the content
-                    highlightSpan.textContent = textContent;
-                    
-                    // Insert the highlighted span
-                    range.insertNode(highlightSpan);
-                }
+                highlightId = await this.db.addHighlight(
+                    this.documentHandler.getDocumentId(),
+                    highlightData
+                );
+
+                this.documentHandler.createHighlight(
+                    this.lastSelection.range,
+                    highlightId
+                );
             } catch (error) {
                 console.error('Error creating highlight:', error);
-                // Continue without highlight if it fails
-                // We still want to save the flashcard
             }
         }
 
-        await this.db.addFlashcard(highlightId, window.location.href, { question, answer });
+        await this.db.addFlashcard(highlightId, this.documentHandler.getDocumentId(), {
+            question,
+            answer
+        });
         this.lastSelection = null;
     }
 

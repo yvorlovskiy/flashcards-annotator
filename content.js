@@ -72,6 +72,19 @@ async function handleCreateFlashcard() {
             alert('Error saving flashcard. Please try again.');
         }
     };
+
+    // Add click-away functionality
+    const handleOutsideClick = function(e) {
+        if (!popup.contains(e.target)) {
+            popup.remove();
+            document.removeEventListener('click', handleOutsideClick);
+        }
+    };
+
+    // Add click listener with a slight delay to avoid immediate trigger
+    setTimeout(() => {
+        document.addEventListener('click', handleOutsideClick);
+    }, 0);
 }
 
 async function handleViewFlashcard(highlightSpan) {
@@ -187,16 +200,21 @@ async function restoreHighlight(text, highlightId = null, isLegacy = false) {
     }
 }
 
-// Update restoreAllHighlights to pass the highlight IDs
+// Update restoreAllHighlights to use document handler
 async function restoreAllHighlights() {
     try {
         // Get all highlights for current page
-        const highlights = await db.getHighlightsForPage(window.location.href);
+        const highlights = await db.getHighlightsForPage(
+            flashcardManager.documentHandler.getDocumentId()
+        );
         
         // Restore each highlight
         for (const highlight of highlights) {
             if (highlight.text) {
-                await restoreHighlight(highlight.text, highlight.id); // Pass the highlight ID
+                await flashcardManager.documentHandler.restoreHighlight(
+                    highlight.text,
+                    highlight.id
+                );
             }
         }
 
@@ -210,7 +228,11 @@ async function restoreAllHighlights() {
         );
         
         for (const flashcard of pageFlashcards) {
-            await restoreHighlight(flashcard.highlightedText, null, true); // Mark as legacy
+            await flashcardManager.documentHandler.restoreHighlight(
+                flashcard.highlightedText,
+                null,
+                true
+            );
         }
     } catch (error) {
         console.error('Error restoring highlights:', error);
