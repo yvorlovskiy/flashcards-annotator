@@ -4,36 +4,132 @@ window.FlashcardDB = class FlashcardDB {
         this.DB_NAME = 'flashcardDB';
         this.DB_VERSION = 1;
         this.db = null;
+        this.context = chrome.runtime?.getURL?.('') ? 'popup' : 'content';
+        console.log('FlashcardDB initialized in context:', this.context);
     }
 
     async init() {
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+            console.log('Initializing database in context:', this.context);
+            // Use a consistent database name across contexts
+            const dbName = this.context === 'popup' ? 'flashcardDB_popup' : 'flashcardDB';
+            const request = indexedDB.open(dbName, this.DB_VERSION);
 
-            request.onerror = () => reject(request.error);
-            request.onsuccess = () => {
+            request.onerror = () => {
+                console.error('Database error:', request.error);
+                reject(request.error);
+            };
+
+            request.onsuccess = async () => {
                 this.db = request.result;
+                console.log('Database opened successfully in context:', this.context);
+                
+                if (this.context === 'popup') {
+                    // In popup context, we need to sync with the content database
+                    await this.syncWithContentDatabase();
+                }
                 resolve();
             };
 
             request.onupgradeneeded = (event) => {
+                console.log('Upgrading database in context:', this.context);
                 const db = event.target.result;
 
-                // Store 1: Webpages
-                const pagesStore = db.createObjectStore('pages', { keyPath: 'url' });
-                pagesStore.createIndex('lastVisited', 'lastVisited');
+                if (!db.objectStoreNames.contains('pages')) {
+                    const pagesStore = db.createObjectStore('pages', { keyPath: 'url' });
+                    pagesStore.createIndex('lastVisited', 'lastVisited');
+                }
 
-                // Store 2: Highlights
-                const highlightsStore = db.createObjectStore('highlights', { keyPath: 'id', autoIncrement: true });
-                highlightsStore.createIndex('pageUrl', 'pageUrl');
-                highlightsStore.createIndex('timestamp', 'timestamp');
+                if (!db.objectStoreNames.contains('highlights')) {
+                    const highlightsStore = db.createObjectStore('highlights', { keyPath: 'id', autoIncrement: true });
+                    highlightsStore.createIndex('pageUrl', 'pageUrl');
+                    highlightsStore.createIndex('timestamp', 'timestamp');
+                }
 
-                // Store 3: Flashcards
-                const flashcardsStore = db.createObjectStore('flashcards', { keyPath: 'id', autoIncrement: true });
-                flashcardsStore.createIndex('highlightId', 'highlightId');
-                flashcardsStore.createIndex('pageUrl', 'pageUrl');
+                if (!db.objectStoreNames.contains('flashcards')) {
+                    const flashcardsStore = db.createObjectStore('flashcards', { keyPath: 'id', autoIncrement: true });
+                    flashcardsStore.createIndex('highlightId', 'highlightId');
+                    flashcardsStore.createIndex('pageUrl', 'pageUrl');
+                }
             };
         });
+    }
+
+    async syncWithContentDatabase() {
+        console.log('Syncing popup database with content database...');
+        try {
+            const data = await new Promise((resolve, reject) => {
+                const timeoutId = setTimeout(() => {
+                    reject(new Error('Timeout waiting for database contents'));
+                }, 5000);
+
+                chrome.runtime.sendMessage({ action: 'getDatabaseContents' }, (response) => {
+                    clearTimeout(timeoutId);
+                    
+                    if (chrome.runtime.lastError) {
+                        console.error('Chrome runtime error:', chrome.runtime.lastError);
+                        reject(chrome.runtime.lastError);
+                        return;
+                    }
+
+                    if (response && response.error) {
+                        console.error('Error from background:', response.error);
+                        reject(new Error(response.error));
+                        return;
+                    }
+
+                    console.log('Received database contents:', response);
+                    resolve(response);
+                });
+            });
+
+            if (!data) {
+                throw new Error('No data received from content script');
+            }
+
+            await this.importData(data);
+            console.log('Database sync completed successfully');
+        } catch (error) {
+            console.error('Error in syncWithContentDatabase:', error);
+            throw error;
+        }
+    }
+
+    async importData(data) {
+        if (!data || !data.flashcards || !data.highlights) {
+            console.error('Invalid data format received:', data);
+            return;
+        }
+
+        console.log('Importing data into popup database:', data);
+        const { flashcards, highlights } = data;
+
+        try {
+            // Import flashcards
+            const flashcardsStore = this.db.transaction('flashcards', 'readwrite').objectStore('flashcards');
+            for (const flashcard of flashcards) {
+                await new Promise((resolve, reject) => {
+                    const request = flashcardsStore.put(flashcard);
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            // Import highlights
+            const highlightsStore = this.db.transaction('highlights', 'readwrite').objectStore('highlights');
+            for (const highlight of highlights) {
+                await new Promise((resolve, reject) => {
+                    const request = highlightsStore.put(highlight);
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            console.log('Data import completed successfully');
+        } catch (error) {
+            console.error('Error during data import:', error);
+            throw error;
+        }
     }
 
     async addPage(url, content) {

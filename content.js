@@ -239,4 +239,55 @@ async function restoreAllHighlights() {
     }
 }
 
+// Add message listener for database sync
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === 'getDatabaseContents') {
+        console.log('Received request for database contents');
+        
+        // Create a Promise to handle the async operations
+        const getAllData = async () => {
+            try {
+                // Get flashcards
+                const flashcardsData = await new Promise((resolve, reject) => {
+                    const transaction = db.db.transaction('flashcards', 'readonly');
+                    const store = transaction.objectStore('flashcards');
+                    const request = store.getAll();
+                    
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+
+                // Get highlights
+                const highlightsData = await new Promise((resolve, reject) => {
+                    const transaction = db.db.transaction('highlights', 'readonly');
+                    const store = transaction.objectStore('highlights');
+                    const request = store.getAll();
+                    
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+
+                console.log('Retrieved data:', { flashcards: flashcardsData, highlights: highlightsData });
+                return { flashcards: flashcardsData, highlights: highlightsData };
+            } catch (error) {
+                console.error('Error getting data:', error);
+                throw error;
+            }
+        };
+
+        // Execute the async operation and handle the response
+        getAllData()
+            .then(data => {
+                console.log('Sending response with data:', data);
+                sendResponse(data);
+            })
+            .catch(error => {
+                console.error('Error in getAllData:', error);
+                sendResponse({ error: error.message });
+            });
+
+        return true; // Keep the message channel open for async response
+    }
+});
+
 // ... rest of the handler functions 
