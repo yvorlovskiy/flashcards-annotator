@@ -65,11 +65,25 @@
             color: #7f8c8d;
             padding: 20px;
         }
+        .export-btn {
+            padding: 8px 16px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+        .export-btn:hover {
+            background-color: #2980b9;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <h3>Your Flashcards</h3>
+        <button id="export-btn" class="export-btn">Export to Markdown</button>
     </div>
     <div id="loading" class="loading">Loading flashcards...</div>
     <div id="flashcards-list"></div>

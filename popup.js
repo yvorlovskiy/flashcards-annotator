@@ -12,6 +12,36 @@ document.addEventListener('DOMContentLoaded', async function() {
     const loadingElement = document.getElementById('loading');
     const flashcardsListElement = document.getElementById('flashcards-list');
     const noFlashcardsElement = document.getElementById('no-flashcards');
+    const exportButton = document.getElementById('export-btn');
+
+    // Add export button handler
+    exportButton.addEventListener('click', async () => {
+        try {
+            exportButton.disabled = true;
+            exportButton.textContent = 'Exporting...';
+            
+            // Send message to background script to handle export
+            await new Promise((resolve, reject) => {
+                chrome.runtime.sendMessage({ action: 'exportToMarkdown' }, (response) => {
+                    if (chrome.runtime.lastError) {
+                        reject(chrome.runtime.lastError);
+                        return;
+                    }
+                    if (response.error) {
+                        reject(new Error(response.error));
+                        return;
+                    }
+                    resolve(response);
+                });
+            });
+        } catch (error) {
+            console.error('Error exporting flashcards:', error);
+            alert('Error exporting flashcards. Please try again.');
+        } finally {
+            exportButton.disabled = false;
+            exportButton.textContent = 'Export to Markdown';
+        }
+    });
 
     try {
         console.log('Initializing database...');
